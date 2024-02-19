@@ -2,18 +2,27 @@
 
 <h1>Welcome to Sudoku!</h1>
 
+<div class="score-heading">
+    <div class="difficulty">
+            {#each difficulties as _, x}
+                <button class={"difficulty-button " + x} on:click={() => throttle(changeDifficulty(x))}>{difficulties[x].value}</button>
+            {/each}
+        </div>
+<div class="errors-container">{noOfErrors + "/3"}</div>
+</div>
+
 <script>
 
     //add digits to selected
-    //add errors
-    //add error checking
     //add candidates
     //add difficulty button
-
+    //add reset game
+    import { load } from "./+page.server";
     import { onMount } from 'svelte';
 
-
-    // let grid = [ 
+    let difficulties = generateDifficulties();
+    let defaultDifficulty = difficulties[0];
+    // let zerosGrid = [ 
     //     [{value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}],
     //     [{value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}],
     //     [{value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}],
@@ -25,6 +34,12 @@
     //     [{value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}, {value: 0, changeAble: false}]
     // ]; 
     let grid = generateGrid();
+    let noOfErrors = 0;
+    // @ts-ignore
+    let solvedGrid = null;
+    // @ts-ignore
+    let puzzles = [];
+    const solutionCache = new Map();
 
     // @ts-ignore
     export let solvedPuzzle = [];
@@ -32,6 +47,17 @@
     onMount(() => {
         grid = generateSudokuPuzzle(grid);
     });
+
+function generateDifficulties() {
+    let difficulties = [];
+    difficulties = [
+        {key: "easy", value: "Easy", diffPercent: 0.3},
+        {key: "medium", value: "Medium", diffPercent: 0.5},
+        {key: "hard", value: "Hard", diffPercent: 0.7},
+        {key: "insane", value: "Insane", diffPercent: 0.9}
+    ];
+    return difficulties;
+}
 
 function generateGrid() {
 const grid = [];
@@ -55,28 +81,45 @@ return grid;
 
 // @ts-ignore
 function generateSudokuPuzzle(grid) {
+    // @ts-ignore
+    grid.forEach(row => {
+        // @ts-ignore
+        row.forEach(cell => {
+            cell.value = 0;
+            cell.changeAble = false;
+            cell.correct = true;
+        });
+    });
+
+    // Generate the first row randomly
     const firstRow = generateFirstRow(grid);
     const entries = Array.from(firstRow.entries());
 
     for (let col = 0; col < 9; col++) {
-        // @ts-ignore
         grid[0][col].value = entries[col][0];
     }
 
-    const solvedGrid = generateSolvedSudokuGrid(grid);
-    solvedPuzzle = solvedGrid;
+    // Solve the Sudoku puzzle to get the solved grid
+    // @ts-ignore
+    if(solvedGrid == null) {
+     solvedGrid = generateSolvedSudokuGrid(grid);
+     saveToFile(solvedGrid);
+    } else {
+        solvedGrid = selectRandomPuzzle();
+    }
 
-    // Clone the solved grid to work with a copy
+    // Copy the solved grid to create the puzzle grid
     // @ts-ignore
     const puzzleGrid = solvedGrid.map(row =>
         // @ts-ignore
-        row.map(cell => ({ value: cell.value, changeAble: false, correct: true })) // Ensure each cell is an object with a 'value' property
+        row.map(cell => ({ value: cell.value, changeAble: false, correct: true }))
     );
 
-    // Define the number of cells to remove based on desired difficulty
-    const difficulty = 0.5; // Example: 50% of cells removed
+    // Define the number of cells to remove based on the desired difficulty
+    const difficulty = defaultDifficulty.diffPercent;
     const totalCells = 81;
     const cellsToRemove = Math.floor(totalCells * difficulty);
+
     // Randomly remove numbers from the grid
     let cellsRemoved = 0;
     while (cellsRemoved < cellsToRemove) {
@@ -84,14 +127,12 @@ function generateSudokuPuzzle(grid) {
         const col = Math.floor(Math.random() * 9);
 
         if (puzzleGrid[row][col].value !== 0) {
-            // Temporarily remove the number for testing uniqueness
             const temp = puzzleGrid[row][col].value;
             puzzleGrid[row][col].value = 0;
             puzzleGrid[row][col].changeAble = true;
 
             // Check if the puzzle still has a unique solution
             if (countSolutions(puzzleGrid) !== 1) {
-                // If removing the number makes the puzzle unsolvable or not unique, restore the number
                 puzzleGrid[row][col].value = temp;
                 puzzleGrid[row][col].changeAble = false;
             } else {
@@ -100,8 +141,101 @@ function generateSudokuPuzzle(grid) {
         }
     }
 
-    // @ts-ignore
     return puzzleGrid;
+    // const firstRow = generateFirstRow(grid);
+    // const entries = Array.from(firstRow.entries());
+
+    // for (let col = 0; col < 9; col++) {
+    //     // @ts-ignore
+    //     grid[0][col].value = entries[col][0];
+    // }
+
+    // const solvedGrid = generateSolvedSudokuGrid(grid);
+    // solvedPuzzle = solvedGrid;
+
+    // // Clone the solved grid to work with a copy
+    // // @ts-ignore
+    // const puzzleGrid = solvedGrid.map(row =>
+    //     // @ts-ignore
+    //     row.map(cell => ({ value: cell.value, changeAble: false, correct: true })) // Ensure each cell is an object with a 'value' property
+    // );
+
+    // // Define the number of cells to remove based on desired difficulty
+    // const difficulty = defaultDifficulty.diffPercent; // Example: 50% of cells removed
+    // const totalCells = 81;
+    // const cellsToRemove = Math.floor(totalCells * difficulty);
+    // // Randomly remove numbers from the grid
+    // let cellsRemoved = 0;
+    // while (cellsRemoved < cellsToRemove) {
+    //     const row = Math.floor(Math.random() * 9);
+    //     const col = Math.floor(Math.random() * 9);
+
+    //     if (puzzleGrid[row][col].value !== 0) {
+    //         // Temporarily remove the number for testing uniqueness
+    //         const temp = puzzleGrid[row][col].value;
+    //         puzzleGrid[row][col].value = 0;
+    //         puzzleGrid[row][col].changeAble = true;
+
+    //         // Check if the puzzle still has a unique solution
+    //         if (countSolutions(puzzleGrid) !== 1) {
+    //             // If removing the number makes the puzzle unsolvable or not unique, restore the number
+    //             puzzleGrid[row][col].value = temp;
+    //             puzzleGrid[row][col].changeAble = false;
+    //         } else {
+    //             cellsRemoved++;
+    //         }
+    //     }
+    // }
+
+    // // @ts-ignore
+    // return puzzleGrid;
+}
+
+// @ts-ignore
+// @ts-ignore
+async function fetchPuzzle(difficulty) {
+        try {
+            const response = await fetch(`/api/puzzles?difficulty=${difficulty}`);
+            const data = await response.json();
+            puzzles = data;
+        } catch (error) {
+            console.error('Error fetching puzzle:', error);
+        }
+    }
+
+// @ts-ignore
+// @ts-ignore
+function selectRandomPuzzle(difficulty) {
+    // @ts-ignore
+    const filteredPuzzles = puzzles.filter(puzzle => puzzle.difficulty === difficulty);
+
+    if (filteredPuzzles.length === 0) {
+        console.error(`No puzzles found for difficulty: ${difficulty}`);
+        return null;
+    }
+
+    const randomIndex = Math.floor(Math.random() * filteredPuzzles.length);
+    return filteredPuzzles[randomIndex];
+}
+
+// @ts-ignore
+async function saveToFile(puzzle) {
+    try {
+        // Send a POST request to the server to save the puzzle
+        const response = await load({
+            // @ts-ignore
+            body: JSON.stringify(puzzle)
+        });
+
+        if (response.status === 200) {
+            console.log('Sudoku puzzle saved successfully!');
+        } else {
+            // @ts-ignore
+            console.error('Failed to save Sudoku puzzle:', response.error);
+        }
+    } catch (error) {
+        console.error('Error saving Sudoku puzzle:', error);
+    }
 }
 
 // @ts-ignore
@@ -163,6 +297,13 @@ function generateFirstRow(grid) {
 
 // @ts-ignore
 function countSolutions(grid) {
+
+    const gridString = JSON.stringify(grid);
+
+    if (solutionCache.has(gridString)) {
+        return solutionCache.get(gridString);
+    }
+
     const emptyCell = findEmptyCell(grid);
     const row = emptyCell[0];
     const col = emptyCell[1];
@@ -187,6 +328,8 @@ function countSolutions(grid) {
             grid[row][col].value = 0;
         }
     }
+
+    
 
     return totalSolutions;
 }
@@ -251,14 +394,51 @@ function handleKeydown(e) {
             grid[selectedCellX][selectedCellY].value = e.key;
             // @ts-ignore
             if(grid[selectedCellX][selectedCellY].value == solvedPuzzle[selectedCellX][selectedCellY].value) {
-                console.log("HERE");
                 grid[selectedCellX][selectedCellY].correct = true;
             }
             else {
+                noOfErrors++;
                 grid[selectedCellX][selectedCellY].correct = false;
             }
         }
     }
+}
+
+// Define a throttle function
+// @ts-ignore
+function throttle(fn) {
+    let lastCall = 0;
+    // @ts-ignore
+    return function(...args) {
+        const now = Date.now();
+        if (now - lastCall >= 1000) {
+            // @ts-ignore
+            fn.apply(this, args);
+            lastCall = now;
+        }
+    };
+}
+
+function resetGame() {
+    // Clear the existing grid
+    grid.forEach(row => {
+        row.forEach(cell => {
+            cell.value = 0;
+            cell.correct = true;
+            cell.changeAble = false;
+        });
+    });
+
+    // Generate a new Sudoku puzzle
+    grid = generateSudokuPuzzle(grid);
+}
+
+// @ts-ignore
+function changeDifficulty(diffIndex) {
+    defaultDifficulty = difficulties[diffIndex];
+    console.log("HERE");
+    resetGame();
+// @ts-ignore
 }
 
 </script>
@@ -266,30 +446,6 @@ function handleKeydown(e) {
 <svelte:window on:keydown={e=>{handleKeydown(e)}} />
 
 <main>
-    <!-- <div class="root">
-        {#each grid as row, i}
-            <div class="row">
-                {#each row as column, j}
-                    <span class="column" 
-                    style:margin-left={j%3==0 ? '5px' : 0}
-                    style:margin-right={j%3==2 ? '5px' : 0}
-                    style:margin-top={i%3==0 ? '5px' : 0}
-                    style:margin-bottom={i%3==2 ? '5px' : 0}
-                    >
-                        <input
-                        class="col-input"
-                        type="text"
-                        inputmode="numeric"
-                        pattern="[1-9.]*"
-                        bind:value="{grid[i][j]}"
-                        on:input|preventDefault={updateValue}
-                        />
-                    </span>
-                {/each}
-            </div>
-        {/each}
-    </div> -->
-
     <div class="grid">
         {#each Array(9) as _, x}
             {#each Array(9) as _, y}
@@ -325,10 +481,6 @@ function handleKeydown(e) {
 		background:black;
     }
 
-    /* .inner-value {
-        font-size: 20pt;
-    } */
-
     .cell{ 
 		display:inline-grid;
 		grid-template-columns: repeat(3, 20px);
@@ -354,6 +506,43 @@ function handleKeydown(e) {
 
     main {
         margin: auto;
+    }
+
+    .errors-container {
+        display: flex;
+        justify-content: flex-end;
+        align-items: flex-start;
+        font-size: 30pt;
+    }
+    
+    .difficulty {
+        display: flex;
+        justify-content: center;
+        gap: 0.3px;
+        align-items: flex-start;
+        font-size: 20pt;
+    }
+
+    .difficulty-button {
+        margin: 10px;
+        padding: 10px;
+        border-radius: 15px;
+        box-shadow: 0 4px 8px 0 rgb(0, 0, 0), 0 6px 20px 0 rgb(0, 0, 0);
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .difficulty-button:hover {
+        background-color: black;
+        color: white;
+    }
+
+    .score-heading {
+        /* display: flex;
+        flex-direction: row;
+        align-content: center;
+        justify-content: space-between;
+        align-items: center; */
     }
 
 </style>
